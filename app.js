@@ -53,7 +53,7 @@ async function loadWorks(){
 
   /* 静态部署回退：读取站点内置的作品快照（只读展示，所有人可看可玩） */
   try{
-    const res2 = await fetch('/works.json');
+    const res2 = await fetch('works.json');
     if(res2.ok){
       works = await res2.json();
       backendAvailable = false;
@@ -141,8 +141,10 @@ function render(){
 }
 
 function cardHTML(w){
-  const media = w.image
-    ? `<img src="${escapeHtml(w.image)}" alt="${escapeHtml(w.title)}" loading="lazy" />`
+  /* 统一成相对路径：去掉开头的 '/'，确保在 GitHub Pages 等子路径托管下也能正确加载 */
+  const imgSrc = w.image ? (w.image.charAt(0) === '/' ? w.image.slice(1) : w.image) : '';
+  const media = imgSrc
+    ? `<img src="${escapeHtml(imgSrc)}" alt="${escapeHtml(w.title)}" loading="lazy" />`
     : `<div class="ph" style="background:${gradient(w.color||'#6366f1')}"><span>${emojiFor(w.title)}</span></div>`;
   return `
   <article class="card" data-id="${w.id}" tabindex="0" role="button" aria-label="打开 ${escapeHtml(w.title)}">
