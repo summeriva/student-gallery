@@ -207,7 +207,7 @@ modal.addEventListener('click', e => { if(e.target.hasAttribute('data-close')) c
 imageInput.addEventListener('change', () => {
   const file = imageInput.files[0];
   if(!file) return;
-  if(file.size > 3 * 1024 * 1024){ showToast('图片请控制在 3MB 以内', true); imageInput.value=''; return; }
+  if(file.size > 1024 * 1024){ showToast('图片请控制在 1MB 以内', true); imageInput.value=''; return; }
   const reader = new FileReader();
   reader.onload = () => {
     pendingImage = reader.result;

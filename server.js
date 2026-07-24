@@ -1,12 +1,11 @@
-/* ===== 学生作品展示馆 · 共享后端（纯 Node，零依赖，含老师权限） ===== */
+/* ===== 学生作品展示馆 · 共享后端（纯 Node，零依赖，含老师权限 + GitHub 持久化） ===== */
 const http   = require('http');
 const fs     = require('fs');
 const path   = require('path');
 const crypto = require('crypto');
 
 const ROOT       = __dirname;
-const DATA_DIR   = path.join(ROOT, 'data');
-const DATA_FILE  = path.join(DATA_DIR, 'works.json');
+const DATA_FILE  = path.join(ROOT, 'works.json');   // 作品数据（仓库内置，含 24 件作品与封面）
 const UPLOAD_DIR = path.join(ROOT, 'uploads');
 const PORT       = process.env.PORT || 3000;
 
@@ -15,44 +14,84 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'teacher123';
 /* 启动后随机生成的管理令牌；老师用口令登录换取，重启后失效需重新登录 */
 const ADMIN_TOKEN = crypto.randomBytes(16).toString('hex');
 
-fs.mkdirSync(DATA_DIR,   { recursive: true });
-fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+/* GitHub 持久化：把作品数据与封面图写回仓库，使 Render 等临时磁盘在 redeploy 时不丢数据，
+   并让公开的 GitHub Pages 只读站自动同步更新。缺少令牌时自动降级为纯本地文件。 */
+const GH_TOKEN   = process.env.GITHUB_TOKEN  || '';
+const GH_REPO    = process.env.GITHUB_REPO   || 'summeriva/student-gallery';
+const GH_BRANCH  = process.env.GITHUB_BRANCH || 'main';
+const USE_GH     = !!GH_TOKEN;
 
-if(!fs.existsSync(DATA_FILE)){
-  const seed = [
-    { id:uid(), title:'《零食大冒险》',       domain:'https://c63gg3djimd.coze.site/',     author:'小招',        school:'XXXX',          teacher:'XXX',         image:null, color:'#6366f1', createdAt:Date.now() },
-    { id:uid(), title:'《前线机甲》',         domain:'https://mvvvqbszye.coze.site',      author:'蒙洋',        school:'成外美年',      teacher:'张德胜',      image:null, color:'#10b981', createdAt:Date.now() },
-    { id:uid(), title:'《寻找手机》',         domain:'https://vxfn8hy6jw.coze.site/',     author:'周禹豪',      school:'益州小学',      teacher:'张德胜',      image:null, color:'#fb7185', createdAt:Date.now() },
-    { id:uid(), title:'《作业大作战》',       domain:'https://dmp37yvwkck.coze.site/',   author:'付倚山',      school:'蒙彼利埃小学',  teacher:'张德胜',      image:null, color:'#f59e0b', createdAt:Date.now() },
-    { id:uid(), title:'《The Land of Holalu》',domain:'https://bt7yj58jk4.coze.site/',   author:'廖敏焯',      school:'成都霍森斯小学',teacher:'张德胜',      image:null, color:'#8b5cf6', createdAt:Date.now() },
-    { id:uid(), title:'《炸房子》',           domain:'https://gn53pgbzn7.coze.site',     author:'廖睿哲',      school:'天府七小',      teacher:'张德胜',      image:null, color:'#06b6d4', createdAt:Date.now() },
-    { id:uid(), title:'家庭保卫战',           domain:'https://kvzhq5sccg.coze.site',     author:'余承衡',      school:'圣菲小学',      teacher:'文浩',         image:null, color:'#ec4899', createdAt:Date.now() },
-    { id:uid(), title:'作业大作战',           domain:'https://qvyzvzd3rbr.coze.site',    author:'苏奕诚',      school:'成外美年',      teacher:'文浩',         image:null, color:'#14b8a6', createdAt:Date.now() },
-    { id:uid(), title:'作业保卫战',           domain:'https://rsnvqvjspn.coze.site',    author:'钟予辰',      school:'泡小天府',      teacher:'文浩',         image:null, color:'#f97316', createdAt:Date.now() },
-    { id:uid(), title:'大战爸妈',             domain:'https://3cek5gqxj6.coze.site',     author:'李佑鹿',      school:'成外美年',      teacher:'文浩',         image:null, color:'#a855f7', createdAt:Date.now() },
-    { id:uid(), title:'机械皇帝的密令',       domain:'https://7bm2g7bjvj.coze.site/',    author:'罗爱文',      school:'成外美年',      teacher:'文浩',         image:null, color:'#22c55e', createdAt:Date.now() },
-    { id:uid(), title:'神秘的家庭',           domain:'https://ssybdc7xgb.coze.site',    author:'王敏行',      school:'蒙彼利埃小学',  teacher:'文浩',         image:null, color:'#ef4444', createdAt:Date.now() },
-    { id:uid(), title:'神秘的家庭',           domain:'https://ps5q32z27c.coze.site',    author:'林文彩',      school:'泡小天府',      teacher:'文浩',         image:null, color:'#0ea5e9', createdAt:Date.now() },
-    { id:uid(), title:'《我要回家！》',       domain:'https://rqh52gz7mf.coze.site',    author:'Jamie',       school:'九小',          teacher:'周小梅',      image:null, color:'#eab308', createdAt:Date.now() },
-    { id:uid(), title:'《家庭寻宝大冒险》',   domain:'https://wjysvvsmn6.coze.site/',   author:'冯睿之',      school:'无',            teacher:'周小梅',      image:null, color:'#84cc16', createdAt:Date.now() },
-    { id:uid(), title:'《王牌突击队》',       domain:'https://bgs5zzg6vv.coze.site',    author:'黄泽睿',      school:'无',            teacher:'周小梅',      image:null, color:'#f43f5e', createdAt:Date.now() },
-    { id:uid(), title:'《心屿大冒险》',       domain:'https://mtydfb5rsr.coze.site',    author:'景钰涵',      school:'无',            teacher:'周小梅',      image:null, color:'#6366f1', createdAt:Date.now() },
-    { id:uid(), title:'《逃出大楼》',         domain:'https://nmnd6ntg7p.coze.site',    author:'宋宜宸',      school:'无',            teacher:'周小梅',      image:null, color:'#10b981', createdAt:Date.now() },
-    { id:uid(), title:'《无名》',             domain:'https://wd9v6yscj2.coze.site',    author:'马浩天',      school:'无',            teacher:'周小梅',      image:null, color:'#fb7185', createdAt:Date.now() },
-    { id:uid(), title:'《洪荒之刃》',         domain:'https://4b5rdrbrh6h.coze.site',   author:'何远墨',      school:'天府四小',      teacher:'符洙染',      image:null, color:'#f59e0b', createdAt:Date.now() },
-    { id:uid(), title:'《Dino Jump》',        domain:'https://mr89mm3j6y.coze.site',    author:'王承天',      school:'天府三小',      teacher:'符洙染',      image:null, color:'#8b5cf6', createdAt:Date.now() },
-    { id:uid(), title:'《火柴人亨利》',       domain:'https://bw2ccqpjjk.coze.site',    author:'周泽希',      school:'天府三小',      teacher:'符洙染',      image:null, color:'#06b6d4', createdAt:Date.now() },
-    { id:uid(), title:'午夜时刻',             domain:'https://btwc5njrnv.coze.site',    author:'罗析',        school:'圣菲学校',      teacher:'符洙染',      image:null, color:'#ec4899', createdAt:Date.now() },
-    { id:uid(), title:'断电密窍',             domain:'https://sxrmfbb8f9j.coze.site/',  author:'李程熙',      school:'无',            teacher:'黄倩',         image:null, color:'#14b8a6', createdAt:Date.now() },
-  ];
-  fs.writeFileSync(DATA_FILE, JSON.stringify(seed, null, 2));
-}
+fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
 /* ---------- 工具 ---------- */
 function uid(){ return 'w_' + Date.now().toString(36) + Math.random().toString(36).slice(2,6); }
 function readWorks(){ try{ return JSON.parse(fs.readFileSync(DATA_FILE,'utf8')); }catch(e){ return []; } }
-function writeWorks(list){ fs.writeFileSync(DATA_FILE, JSON.stringify(list, null, 2)); }
+function writeWorksLocal(list){ fs.writeFileSync(DATA_FILE, JSON.stringify(list, null, 2)); }
 function isAdmin(req){ return req.headers['x-admin-token'] === ADMIN_TOKEN; }
+
+/* ---------- GitHub 存储层 ---------- */
+function ghHeaders(){
+  return {
+    Authorization: `Bearer ${GH_TOKEN}`,
+    Accept: 'application/vnd.github+json',
+    'User-Agent': 'student-gallery',
+    'Content-Type': 'application/json'
+  };
+}
+async function ghGet(p){
+  const r = await fetch(`https://api.github.com/repos/${GH_REPO}/contents/${encodeURI(p)}?ref=${GH_BRANCH}`, { headers: ghHeaders() });
+  if(r.status === 404) return null;
+  if(!r.ok) throw new Error('GH GET ' + p + ' -> ' + r.status);
+  return r.json();
+}
+async function ghPut(p, b64, message, sha){
+  const body = { message, content: b64, branch: GH_BRANCH };
+  if(sha) body.sha = sha;
+  const r = await fetch(`https://api.github.com/repos/${GH_REPO}/contents/${encodeURI(p)}`, {
+    method:'PUT', headers: ghHeaders(), body: JSON.stringify(body)
+  });
+  if(!r.ok) throw new Error('GH PUT ' + p + ' -> ' + r.status);
+  return r.json();
+}
+/* 把最新作品列表写回仓库（best-effort，网络异常不阻断本地操作） */
+async function pushWorks(list){
+  if(!USE_GH) return;
+  try{
+    const cur = await ghGet('works.json');
+    const sha = cur ? cur.sha : undefined;
+    await ghPut('works.json', Buffer.from(JSON.stringify(list, null, 2)).toString('base64'), 'chore: update works via admin', sha);
+  }catch(e){ console.error('⚠️ 推送 works.json 失败：', e.message); }
+}
+/* 把封面图写回仓库（best-effort）；失败则抛出由调用方降级为内联 data URL */
+async function pushImage(fname, buf){
+  const cur = await ghGet('uploads/' + fname);
+  const sha = cur ? cur.sha : undefined;
+  await ghPut('uploads/' + fname, buf.toString('base64'), 'add cover ' + fname, sha);
+}
+/* 启动时：本地数据缺失则从仓库引导；并补齐本地缺失的封面图（只读，不覆盖本地作品） */
+async function syncFromGitHub(){
+  if(!USE_GH) return;
+  try{
+    if(!fs.existsSync(DATA_FILE)){
+      const c = await ghGet('works.json');
+      if(c){ writeWorksLocal(JSON.parse(Buffer.from(c.content, 'base64').toString('utf8'))); console.log('✅ 已从 GitHub 引导作品数据'); }
+    }
+  }catch(e){ console.warn('⚠️ GitHub 引导失败，使用本地数据：', e.message); }
+  try{
+    const list = readWorks();
+    for(const w of list){
+      if(w.image && w.image.startsWith('uploads/')){
+        const fp = path.join(UPLOAD_DIR, path.basename(w.image));
+        if(!fs.existsSync(fp)){
+          try{
+            const img = await ghGet(w.image);
+            if(img) fs.writeFileSync(fp, Buffer.from(img.content, 'base64'));
+          }catch(e){ console.warn('⚠️ 拉取封面失败：', w.image); }
+        }
+      }
+    }
+  }catch(e){}
+}
 
 const MIME = {
   '.html':'text/html; charset=utf-8', '.css':'text/css; charset=utf-8',
@@ -86,35 +125,35 @@ function json(res, code, obj, cors){
 }
 
 /* ---------- API ---------- */
-function handleApi(req, res, pathname){
+async function handleApi(req, res, pathname){
   const cors = true;
-  if(req.method === 'OPTIONS'){
-    res.writeHead(204, {
-      'Access-Control-Allow-Origin':'*',
-      'Access-Control-Allow-Methods':'GET,POST,DELETE',
-      'Access-Control-Allow-Headers':'Content-Type, x-admin-token'
-    });
-    return res.end();
-  }
+  try{
+    if(req.method === 'OPTIONS'){
+      res.writeHead(204, {
+        'Access-Control-Allow-Origin':'*',
+        'Access-Control-Allow-Methods':'GET,POST,DELETE',
+        'Access-Control-Allow-Headers':'Content-Type, x-admin-token'
+      });
+      return res.end();
+    }
 
-  /* 老师登录：口令正确则发放管理令牌 */
-  if(req.method === 'POST' && pathname === '/api/login'){
-    return readJson(req, 1024).then(body => {
+    /* 老师登录：口令正确则发放管理令牌 */
+    if(req.method === 'POST' && pathname === '/api/login'){
+      const body = await readJson(req, 1024);
       const pw = (body.password || '').toString();
       if(pw === ADMIN_PASSWORD) return json(res, 200, { ok:true, token: ADMIN_TOKEN }, cors);
       return json(res, 401, { error:'口令错误' }, cors);
-    }).catch(() => json(res, 400, { error:'请求错误' }, cors));
-  }
+    }
 
-  /* 读取作品：所有人可看 */
-  if(req.method === 'GET' && pathname === '/api/works'){
-    return json(res, 200, readWorks(), cors);
-  }
+    /* 读取作品：所有人可看 */
+    if(req.method === 'GET' && pathname === '/api/works'){
+      return json(res, 200, readWorks(), cors);
+    }
 
-  /* 发布作品：仅老师可操作 */
-  if(req.method === 'POST' && pathname === '/api/works'){
-    if(!isAdmin(req)) return json(res, 401, { error:'需要老师口令才能发布' }, cors);
-    return readJson(req, 12 * 1024 * 1024).then(body => {
+    /* 发布作品：仅老师可操作 */
+    if(req.method === 'POST' && pathname === '/api/works'){
+      if(!isAdmin(req)) return json(res, 401, { error:'需要老师口令才能发布' }, cors);
+      const body = await readJson(req, 12 * 1024 * 1024);
       const title  = (body.title  || '').toString().trim();
       const domain = (body.domain || '').toString().trim();
       const author = (body.author || '').toString().trim();
@@ -127,11 +166,19 @@ function handleApi(req, res, pathname){
         if(m){
           const extMap = { 'image/png':'png','image/jpeg':'jpg','image/gif':'gif','image/webp':'webp','image/svg+xml':'svg' };
           const ext = extMap[m[1]] || 'png';
-          try{
-            const fname = uid() + '.' + ext;
-            fs.writeFileSync(path.join(UPLOAD_DIR, fname), Buffer.from(m[2], 'base64'));
-            imageUrl = '/uploads/' + fname;
-          }catch(e){ console.error('图片保存失败', e); }
+          const buf = Buffer.from(m[2], 'base64');
+          if(buf.length > 1024 * 1024){
+            return json(res, 400, { error:'图片过大，请压缩到 1MB 以内' }, cors);
+          }
+          const fname = uid() + '.' + ext;
+          const localFp = path.join(UPLOAD_DIR, fname);
+          try{ fs.writeFileSync(localFp, buf); }catch(e){ console.error('本地图片保存失败', e); }
+          imageUrl = 'uploads/' + fname;
+          /* 同时写回 GitHub（失败则降级为内联 data URL，保证 redeploy 不丢） */
+          if(USE_GH){
+            try{ await pushImage(fname, buf); }
+            catch(e){ console.error('GitHub 图片推送失败，改为内联存储：', e.message); imageUrl = img; }
+          }
         }
       }
 
@@ -146,27 +193,32 @@ function handleApi(req, res, pathname){
       };
       const list = readWorks();
       list.unshift(work);
-      writeWorks(list);
+      writeWorksLocal(list);
+      await pushWorks(list);
       return json(res, 201, work, cors);
-    }).catch(() => json(res, 400, { error:'请求体解析失败' }, cors));
-  }
-
-  /* 删除作品：仅老师可操作 */
-  if(req.method === 'DELETE' && pathname.startsWith('/api/works/')){
-    if(!isAdmin(req)) return json(res, 401, { error:'需要老师口令才能删除' }, cors);
-    const id = pathname.split('/').pop();
-    const list = readWorks();
-    const idx = list.findIndex(w => w.id === id);
-    if(idx === -1) return json(res, 404, { error:'未找到该作品' }, cors);
-    const [removed] = list.splice(idx, 1);
-    writeWorks(list);
-    if(removed && removed.image && removed.image.startsWith('/uploads/')){
-      try{ fs.unlinkSync(path.join(UPLOAD_DIR, path.basename(removed.image))); }catch(e){}
     }
-    return json(res, 200, { ok:true }, cors);
-  }
 
-  return json(res, 404, { error:'接口不存在' }, cors);
+    /* 删除作品：仅老师可操作 */
+    if(req.method === 'DELETE' && pathname.startsWith('/api/works/')){
+      if(!isAdmin(req)) return json(res, 401, { error:'需要老师口令才能删除' }, cors);
+      const id = pathname.split('/').pop();
+      const list = readWorks();
+      const idx = list.findIndex(w => w.id === id);
+      if(idx === -1) return json(res, 404, { error:'未找到该作品' }, cors);
+      const [removed] = list.splice(idx, 1);
+      writeWorksLocal(list);
+      await pushWorks(list);
+      if(removed && removed.image && removed.image.startsWith('uploads/')){
+        try{ fs.unlinkSync(path.join(UPLOAD_DIR, path.basename(removed.image))); }catch(e){}
+      }
+      return json(res, 200, { ok:true }, cors);
+    }
+
+    return json(res, 404, { error:'接口不存在' }, cors);
+  }catch(err){
+    console.error('API 错误:', err);
+    if(!res.headersSent) json(res, 500, { error:'服务器内部错误' }, cors);
+  }
 }
 
 /* ---------- 服务器 ---------- */
@@ -188,6 +240,10 @@ const server = http.createServer((req, res) => {
   return sendFile(res, fp);
 });
 
-server.listen(PORT, '0.0.0.0', () => {
-  console.log(`✅ 学生作品展示馆已启动： http://localhost:${PORT}  （老师默认口令：teacher123）`);
-});
+(async () => {
+  await syncFromGitHub();
+  server.listen(PORT, '0.0.0.0', () => {
+    console.log(`✅ 学生作品展示馆已启动： http://localhost:${PORT}  （老师默认口令：teacher123）`);
+    console.log(USE_GH ? ('🔗 已启用 GitHub 持久化：' + GH_REPO) : '⚠️ 未配置 GITHUB_TOKEN，使用本地文件（redeploy 会丢失新增作品）');
+  });
+})();
