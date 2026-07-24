@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>学生作品展示馆 · 创意编程作品墙</title>
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+<header class="site-header">
+  <div class="brand">
+    <span class="brand-logo">🎮</span>
+    <div class="brand-text">
+      <strong>学生作品展示馆</strong>
+      <small>创意编程作品墙</small>
+    </div>
+  </div>
+  <div class="header-actions">
+    <button class="btn-ghost" id="teacherBtn">老师入口</button>
+    <button class="btn-primary" id="openAddBtn">+ 添加作品</button>
+  </div>
+</header>
+
+<section class="hero">
+  <h1>探索同学们用代码创造的世界</h1>
+  <p>每一款网页游戏，都是一个想法变成现实的瞬间。点击卡片，进入他们的创作。</p>
+  <div class="hero-stats"><span id="workCount">0</span> 件作品正在展出</div>
+</section>
+
+<main class="container">
+  <div class="toolbar">
+    <input type="search" id="searchInput" placeholder="搜索作品名或作者…" />
+    <div class="filters" id="filterBar"></div>
+  </div>
+  <section id="gallery" class="gallery"></section>
+  <div id="emptyState" class="empty-state" hidden>
+    <div class="empty-emoji">📭</div>
+    <p>还没有作品，点击右上角「添加作品」开始布展吧。</p>
+  </div>
+</main>
+
+<footer class="site-footer">
+  <p>由老师与学生共同搭建 · 数据实时同步，所有人看到同一份作品墙</p>
+</footer>
+
+<!-- 添加作品弹窗 -->
+<div class="modal" id="addModal" hidden>
+  <div class="modal-backdrop" data-close></div>
+  <div class="modal-card">
+    <div class="modal-head">
+      <h2>添加新作品</h2>
+      <button class="icon-btn" data-close aria-label="关闭">×</button>
+    </div>
+    <form id="addForm" class="add-form">
+      <label>作品名字 *
+        <input type="text" name="title" required placeholder="例如：太空躲避战" maxlength="40" />
+      </label>
+      <label>游戏域名 / 链接 *
+        <input type="url" name="domain" required placeholder="https://... 学生部署后的地址" />
+      </label>
+      <label>作者 / 班级（选填）
+        <input type="text" name="author" placeholder="例如：三年二班 小明" maxlength="30" />
+      </label>
+      <label class="file-label">作品封面图（选填）
+        <input type="file" id="imageInput" accept="image/*" />
+        <div class="preview" id="imagePreview" hidden></div>
+        <small class="hint">不上传则会用彩色占位图代替</small>
+      </label>
+      <div class="modal-actions">
+        <button type="button" class="btn-ghost" data-close>取消</button>
+        <button type="submit" class="btn-primary">保存作品</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- 老师登录弹窗 -->
+<div class="modal" id="loginModal" hidden>
+  <div class="modal-backdrop" data-close-login></div>
+  <div class="modal-card">
+    <div class="modal-head">
+      <h2>老师入口</h2>
+      <button class="icon-btn" data-close-login aria-label="关闭">×</button>
+    </div>
+    <form id="loginForm" class="add-form">
+      <label>老师口令
+        <input type="password" name="password" required placeholder="请输入发布口令" autocomplete="off" />
+      </label>
+      <p class="hint login-hint" id="loginHint"></p>
+      <div class="modal-actions">
+        <button type="button" class="btn-ghost" data-close-login>取消</button>
+        <button type="submit" class="btn-primary">进入</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="toast" id="toast" hidden></div>
+<script src="app.js"></script>
+</body>
+</html>

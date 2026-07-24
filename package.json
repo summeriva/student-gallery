@@ -1,0 +1,13 @@
+{
+  "name": "student-works-gallery",
+  "version": "1.1.0",
+  "description": "学生网页游戏作品展示馆（多人共享版，零依赖 Node 后端）",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=14"
+  },
+  "private": true
+}
