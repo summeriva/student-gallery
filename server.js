@@ -35,6 +35,7 @@ const GH_BRANCH  = process.env.GITHUB_BRANCH || 'main';
 const USE_GH     = !!GH_TOKEN;
 
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+console.log('✅ server.js 模块加载完成（数据目录:', ROOT, '）');
 
 /* ---------- 工具 ---------- */
 function uid(){ return 'w_' + Date.now().toString(36) + Math.random().toString(36).slice(2,6); }
@@ -81,10 +82,9 @@ async function pushImage(fname, buf){
   const sha = cur ? cur.sha : undefined;
   await ghPut('uploads/' + fname, buf.toString('base64'), 'add cover ' + fname, sha);
 }
-/* 启动时：仅当本地完全无数据时才从 GitHub 引导（FC 部署包已含 works.json + uploads/，通常不需要）。
-   此函数永不阻塞 handler——即使 GitHub 不通也不影响服务启动。 */
+/* 启动时 GitHub 同步（仅本地模式使用；FC 模式下 zip 已含全部数据，不需要同步）。
+   此函数永不阻塞 handler——FC handler 不调用此函数。 */
 async function syncFromGitHub(){
-  /* 本地已有作品数据 + 封面目录非空 → 直接跳过（FC 上传包、正常本地开发都属于此情况） */
   if(fs.existsSync(DATA_FILE) && fs.readdirSync(UPLOAD_DIR).length > 0){
     console.log('✅ 本地数据完整，跳过 GitHub 同步');
     return;
@@ -107,6 +107,10 @@ async function syncFromGitHub(){
     }
   }catch(e){}
 }
+
+/* FC 模式下不触发任何启动同步（zip 包已含全部数据，handler 直接服务请求） */
+const _fcMode = typeof process.env.FC_RUNTIME !== 'undefined' || process.env.ALIYUN_FC === '1';
+const ready = _fcMode ? Promise.resolve() : syncFromGitHub();
 
 const MIME = {
   '.html':'text/html; charset=utf-8', '.css':'text/css; charset=utf-8',
@@ -280,9 +284,6 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-/* 启动时先同步一次 GitHub 数据；模块级 promise，本地与 FC 都 await 它 */
-const ready = syncFromGitHub();
-
 /* 本地模式：启动 HTTP 服务。FC 运行时由 exports.handler 处理，不启动监听。 */
 if(!process.env.FC_RUNTIME){
   (async () => {
@@ -314,6 +315,7 @@ function makeFcRes(resp){
   return adapter;
 }
 exports.handler = async (req, resp, context) => {
+  console.log('🔔 FC handler 被调用，开始处理请求...');
   /* 必须是 Web 函数（HTTP 模式）才会拿到真正的 HTTP 响应对象。
      事件函数下 resp 是 context，调用 resp.send 必然失败 -> 浏览器 ERR_INVALID_RESPONSE。 */
   const isWeb = resp && typeof resp.setStatusCode === 'function';
@@ -328,9 +330,11 @@ exports.handler = async (req, resp, context) => {
     const body = Buffer.isBuffer(req.body) ? req.body : Buffer.from(req.body || '');
     const rawPath = req.path || (req.url ? String(req.url).split('?')[0] : '/');
     const rawUrl = rawPath + buildQuery(req.queries);
+    console.log('🔔 路由分发:', method, rawUrl);
     await route({ method, headers, body }, makeFcRes(resp), rawUrl);
+    console.log('🔔 请求处理完成');
   }catch(e){
     console.error('FC 请求错误:', e);
-    try{ if(!resp.hasSent || !resp.hasSent()){ resp.setStatusCode(500); resp.setHeader('Content-Type','text/plain; charset=utf-8'); resp.send('Internal Server Error'); } }catch(_){}
+    try{ if(!resp.hasSent || !resp.hasSent()){ resp.setStatusCode(500); resp.setHeader('Content-Type','text/plain; charset=utf-8'); resp.send('Internal Server Error: ' + e.message); } }catch(_){}
   }
 };
