@@ -9,6 +9,14 @@ const fs     = require('fs');
 const path   = require('path');
 const crypto = require('crypto');
 
+/* 带超时的 fetch：GitHub 不通时不能无限挂起，否则会拖垮请求/初始化 */
+async function fetchWithTimeout(url, opts, ms = 5000){
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), ms);
+  try { return await fetch(url, { ...opts, signal: ctrl.signal }); }
+  finally { clearTimeout(timer); }
+}
+
 const ROOT       = __dirname;
 const DATA_FILE  = path.join(ROOT, 'works.json');   // 作品数据（仓库内置，含 24 件作品与封面）
 const UPLOAD_DIR = path.join(ROOT, 'uploads');
@@ -44,7 +52,7 @@ function ghHeaders(){
   };
 }
 async function ghGet(p){
-  const r = await fetch(`https://api.github.com/repos/${GH_REPO}/contents/${encodeURI(p)}?ref=${GH_BRANCH}`, { headers: ghHeaders() });
+  const r = await fetchWithTimeout(`https://api.github.com/repos/${GH_REPO}/contents/${encodeURI(p)}?ref=${GH_BRANCH}`, { headers: ghHeaders() });
   if(r.status === 404) return null;
   if(!r.ok) throw new Error('GH GET ' + p + ' -> ' + r.status);
   return r.json();
@@ -52,7 +60,7 @@ async function ghGet(p){
 async function ghPut(p, b64, message, sha){
   const body = { message, content: b64, branch: GH_BRANCH };
   if(sha) body.sha = sha;
-  const r = await fetch(`https://api.github.com/repos/${GH_REPO}/contents/${encodeURI(p)}`, {
+  const r = await fetchWithTimeout(`https://api.github.com/repos/${GH_REPO}/contents/${encodeURI(p)}`, {
     method:'PUT', headers: ghHeaders(), body: JSON.stringify(body)
   });
   if(!r.ok) throw new Error('GH PUT ' + p + ' -> ' + r.status);
@@ -304,8 +312,15 @@ function makeFcRes(resp){
   return adapter;
 }
 exports.handler = async (req, resp, context) => {
+  /* 必须是 Web 函数（HTTP 模式）才会拿到真正的 HTTP 响应对象。
+     事件函数下 resp 是 context，调用 resp.send 必然失败 -> 浏览器 ERR_INVALID_RESPONSE。 */
+  const isWeb = resp && typeof resp.setStatusCode === 'function';
+  if(!isWeb){
+    console.error('⚠️ 当前不是「Web 函数」模式：handler 未收到 HTTP 响应对象。请在函数计算创建函数时选择「Web 函数」（而非事件函数）并配置 HTTP 触发器。');
+    try{ if(context && typeof context.callback === 'function') context.callback(null, { statusCode: 500, body: '请在函数计算中创建「Web 函数」并配置 HTTP 触发器' }); }catch(_){}
+    return;
+  }
   try{
-    await ready;
     const method = (req.method || 'GET').toUpperCase();
     const headers = req.headers || {};
     const body = Buffer.isBuffer(req.body) ? req.body : Buffer.from(req.body || '');
@@ -314,6 +329,6 @@ exports.handler = async (req, resp, context) => {
     await route({ method, headers, body }, makeFcRes(resp), rawUrl);
   }catch(e){
     console.error('FC 请求错误:', e);
-    try{ if(!resp.hasSent || !resp.hasSent()){ resp.setStatusCode(500); resp.send('Internal Server Error'); } }catch(_){}
+    try{ if(!resp.hasSent || !resp.hasSent()){ resp.setStatusCode(500); resp.setHeader('Content-Type','text/plain; charset=utf-8'); resp.send('Internal Server Error'); } }catch(_){}
   }
 };
