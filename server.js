@@ -81,14 +81,18 @@ async function pushImage(fname, buf){
   const sha = cur ? cur.sha : undefined;
   await ghPut('uploads/' + fname, buf.toString('base64'), 'add cover ' + fname, sha);
 }
-/* 启动时：本地数据缺失则从仓库引导；并补齐本地缺失的封面图（只读，不覆盖本地作品） */
+/* 启动时：仅当本地完全无数据时才从 GitHub 引导（FC 部署包已含 works.json + uploads/，通常不需要）。
+   此函数永不阻塞 handler——即使 GitHub 不通也不影响服务启动。 */
 async function syncFromGitHub(){
+  /* 本地已有作品数据 + 封面目录非空 → 直接跳过（FC 上传包、正常本地开发都属于此情况） */
+  if(fs.existsSync(DATA_FILE) && fs.readdirSync(UPLOAD_DIR).length > 0){
+    console.log('✅ 本地数据完整，跳过 GitHub 同步');
+    return;
+  }
   if(!USE_GH) return;
   try{
-    if(!fs.existsSync(DATA_FILE)){
-      const c = await ghGet('works.json');
-      if(c){ writeWorksLocal(JSON.parse(Buffer.from(c.content, 'base64').toString('utf8'))); console.log('✅ 已从 GitHub 引导作品数据'); }
-    }
+    const c = await ghGet('works.json');
+    if(c){ writeWorksLocal(JSON.parse(Buffer.from(c.content, 'base64').toString('utf8'))); console.log('✅ 已从 GitHub 引导作品数据'); }
   }catch(e){ console.warn('⚠️ GitHub 引导失败，使用本地数据：', e.message); }
   try{
     const list = readWorks();
@@ -96,10 +100,8 @@ async function syncFromGitHub(){
       if(w.image && w.image.startsWith('uploads/')){
         const fp = path.join(UPLOAD_DIR, path.basename(w.image));
         if(!fs.existsSync(fp)){
-          try{
-            const img = await ghGet(w.image);
-            if(img) fs.writeFileSync(fp, Buffer.from(img.content, 'base64'));
-          }catch(e){ console.warn('⚠️ 拉取封面失败：', w.image); }
+          try{ const img = await ghGet(w.image); if(img) fs.writeFileSync(fp, Buffer.from(img.content, 'base64')); }
+          catch(e){ console.warn('⚠️ 拉取封面失败：', w.image); }
         }
       }
     }
