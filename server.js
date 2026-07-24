@@ -109,8 +109,7 @@ async function syncFromGitHub(){
 }
 
 /* FC 模式下不触发任何启动同步（zip 包已含全部数据，handler 直接服务请求） */
-const _fcMode = typeof process.env.FC_RUNTIME !== 'undefined' || process.env.ALIYUN_FC === '1';
-const ready = _fcMode ? Promise.resolve() : syncFromGitHub();
+const ready = isFcEnv() ? Promise.resolve() : syncFromGitHub();
 
 const MIME = {
   '.html':'text/html; charset=utf-8', '.css':'text/css; charset=utf-8',
@@ -284,8 +283,15 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-/* 本地模式：启动 HTTP 服务。FC 运行时由 exports.handler 处理，不启动监听。 */
-if(!process.env.FC_RUNTIME){
+/* 判断是否运行在阿里云 FC 环境中（多种指标综合判断，不依赖单一变量） */
+function isFcEnv(){
+  return !!(process.env.FC_FUNCTION_NAME || process.env.FC_FUNCTION_HANDLER ||
+           process.env.ALIYUN_FC || process.env.FC_RUNTIME ||
+           process.env.FC_ACCOUNT_ID);
+}
+
+/* 本地模式：启动 HTTP 服务。FC 环境下不启动监听（由 exports.handler 处理请求）。 */
+if(!isFcEnv()){
   (async () => {
     await ready;
     server.listen(PORT, '0.0.0.0', () => {
@@ -293,6 +299,8 @@ if(!process.env.FC_RUNTIME){
       console.log(USE_GH ? ('🔗 已启用 GitHub 持久化：' + GH_REPO) : '⚠️ 未配置 GITHUB_TOKEN，使用本地文件（redeploy 会丢失新增作品）');
     });
   })();
+} else {
+  console.log('✅ 检测到 FC 环境，跳过本地 HTTP 服务启动');
 }
 
 /* ---------- 阿里云 FC 入口（内置 Node.js 运行时，HTTP 触发器）---------- */
@@ -321,8 +329,16 @@ exports.handler = async (req, resp, context) => {
   const isWeb = resp && typeof resp.setStatusCode === 'function';
   if(!isWeb){
     console.error('⚠️ 当前不是「Web 函数」模式：handler 未收到 HTTP 响应对象。请在函数计算创建函数时选择「Web 函数」（而非事件函数）并配置 HTTP 触发器。');
-    try{ if(context && typeof context.callback === 'function') context.callback(null, { statusCode: 500, body: '请在函数计算中创建「Web 函数」并配置 HTTP 触发器' }); }catch(_){}
-    return;
+    const errMsg = '请在阿里云函数计算控制台中：删除当前函数 → 使用「内置运行时」重新创建 → 函数类型选「Web 函数」→ 运行环境 Node.js 20 → 请求处理程序填 server.handler';
+    try{
+      if(context && typeof context.callback === 'function'){
+        context.callback(null, { statusCode: 500, headers: { 'Content-Type': 'text/plain; charset=utf-8' }, body: errMsg });
+      }
+      return;
+    }catch(e){
+      console.error('callback 也失败:', e.message);
+      return;
+    }
   }
   try{
     const method = (req.method || 'GET').toUpperCase();
