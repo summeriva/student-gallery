@@ -6,7 +6,7 @@
 
 - **公网只读站（已上线）**：`https://summeriva.github.io/student-gallery/`
   任何人可打开浏览、点卡片进游戏玩。由 GitHub Pages 托管，读取仓库里的 `works.json`。
-- **公开后端（可在线增删）**：部署到 Render 后，老师用口令登录即可在线发布 / 删除作品。
+- **公开后端（可在线增删）**：部署到 Render 或阿里云函数计算后，老师用口令登录即可在线发布 / 删除作品。
   后端把改动通过 GitHub API 写回本仓库，所以**只读站会自动同步更新**，且 **Render 临时磁盘在 redeploy 后也不会丢数据**。
 
 ## 本地运行
@@ -62,6 +62,24 @@ generate-covers.js 生成封面图的脚本（可选，已生成好无需再跑�
 也可用仓库根目录的 `render.yaml` 一键部署（Dashboard 选 "New from render.yaml"）。
 
 > ⚠️ 若不配置 `GITHUB_TOKEN`，Render 免费磁盘在 redeploy 时会清空新增作品。配置令牌即可永久保存，并让只读站同步。
+
+## 国内部署：阿里云函数计算（国内访问快）
+
+推荐用**函数计算 FC 的自定义运行时（Custom Runtime）**，直接跑现有 Node 服务，无需改代码：
+
+1. 登录 [阿里云函数计算控制台](https://fc.console.aliyun.com)，新建**函数** → 选择「使用自定义运行时创建」。
+2. 运行环境选 `custom`，上传本仓库代码包（zip），**启动命令**填 `node server.js`，**监听端口**填 `9000`（FC 会把 HTTP 请求转发到此端口）。
+3. 触发器选 **HTTP 触发器**，认证方式 `anonymous`（匿名，所有人可访问），方法勾选 `GET / POST / DELETE / OPTIONS`。
+4. 函数配置里添加**环境变量**：
+   - `ADMIN_PASSWORD` = 你的老师口令
+   - `GITHUB_TOKEN` = 有 `repo` 权限的 GitHub 令牌（用于把作品写回仓库）
+   - `GITHUB_REPO` = `summeriva/student-gallery`
+   - `GITHUB_BRANCH` = `main`
+5. 创建后获得公网地址（形如 `https://<id>.<region>.fc.aliyuncs.com/...`），用老师口令登录即可在线发布 / 删除，GitHub Pages 只读站会自动同步。
+
+> 也可用仓库根目录的 `s.yaml` + [Serverless Devs](https://docs.serverless-devs.com/)（`s` 工具）一键部署：先 `s config add` 配置 AccessKey，再 `s deploy`（部署前本地先 `export GITHUB_TOKEN=你的令牌`）。
+
+> ⚠️ 同样必须配置 `GITHUB_TOKEN`，否则函数实例重启会丢失新增作品。
 
 ## 推送到 GitHub
 

@@ -1,0 +1,35 @@
+edition: 3.0.0
+name: student-gallery
+access: default
+resources:
+  gallery-fc:
+    component: fc3
+    props:
+      region: cn-hangzhou
+      function:
+        name: student-gallery
+        description: 学生网页游戏作品展示馆
+        runtime: custom
+        code: ./
+        port: 9000
+        startup: node server.js
+        environmentVariables:
+          ADMIN_PASSWORD: teacher123
+          GITHUB_REPO: summeriva/student-gallery
+          GITHUB_BRANCH: main
+          GITHUB_TOKEN: ${env.GITHUB_TOKEN}
+        cpu: 0.5
+        memorySize: 256
+        timeout: 30
+        instanceConcurrency: 1
+      triggers:
+        - name: httpTrigger
+          type: http
+          config:
+            authType: anonymous
+            methods:
+              - GET
+              - POST
+              - DELETE
+              - PUT
+              - OPTIONS
