@@ -65,21 +65,23 @@ generate-covers.js 生成封面图的脚本（可选，已生成好无需再跑�
 
 ## 国内部署：阿里云函数计算（国内访问快）
 
-推荐用**函数计算 FC 的自定义运行时（Custom Runtime）**，直接跑现有 Node 服务，无需改代码：
+用**函数计算 FC 内置的 Node.js 20 运行时 + HTTP 触发器**，无需 Docker、无需打包运行时（`server.js` 已同时支持本地服务与 FC handler 两种入口）：
 
-1. 登录 [阿里云函数计算控制台](https://fc.console.aliyun.com)，新建**函数** → 选择「使用自定义运行时创建」。
-2. 运行环境选 `custom`，上传本仓库代码包（zip），**启动命令**填 `node server.js`，**监听端口**填 `9000`（FC 会把 HTTP 请求转发到此端口）。
+1. 登录 [阿里云函数计算控制台](https://fc.console.aliyun.com)，新建**函数**。
+2. 运行环境选 **Node.js 20**，**请求处理程序（handler）** 填 `server.handler`。
 3. 触发器选 **HTTP 触发器**，认证方式 `anonymous`（匿名，所有人可访问），方法勾选 `GET / POST / DELETE / OPTIONS`。
 4. 函数配置里添加**环境变量**：
    - `ADMIN_PASSWORD` = 你的老师口令
    - `GITHUB_TOKEN` = 有 `repo` 权限的 GitHub 令牌（用于把作品写回仓库）
    - `GITHUB_REPO` = `summeriva/student-gallery`
    - `GITHUB_BRANCH` = `main`
-5. 创建后获得公网地址（形如 `https://<id>.<region>.fc.aliyuncs.com/...`），用老师口令登录即可在线发布 / 删除，GitHub Pages 只读站会自动同步。
+5. 代码：上传本仓库代码包（zip，排除 `.git/`）。创建后获得公网地址（形如 `https://<id>.<region>.fc.aliyuncs.com/...`），用老师口令登录即可在线发布 / 删除，GitHub Pages 只读站会自动同步。
 
-> 也可用仓库根目录的 `s.yaml` + [Serverless Devs](https://docs.serverless-devs.com/)（`s` 工具）一键部署：先 `s config add` 配置 AccessKey，再 `s deploy`（部署前本地先 `export GITHUB_TOKEN=你的令牌`）。
+> 也可用仓库根目录的 `s.yaml` + [Serverless Devs](https://docs.serverless-devs.com/)（`s` 工具）一键部署：先 `s config add` 配置 AccessKey，再 `s deploy`（部署前本地先 `export GITHUB_TOKEN=你的令牌`）。`s.yaml` 已改为 `nodejs20` 运行时 + `server.handler`。
 
 > ⚠️ 同样必须配置 `GITHUB_TOKEN`，否则函数实例重启会丢失新增作品。
+
+> 为什么不用「Custom Runtime」：自定义运行时基础镜像不含 Node.js，`bootstrap` 执行 `node` 会报 `CAFileNotFound / the file node is not exist`。改用内置 Node.js 20 运行时即可彻底避开。
 
 ## 推送到 GitHub
 

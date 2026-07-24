@@ -9,10 +9,9 @@ resources:
       function:
         name: student-gallery
         description: 学生网页游戏作品展示馆
-        runtime: custom
+        runtime: nodejs20
+        handler: server.handler
         code: ./
-        port: 9000
-        startup: node server.js
         environmentVariables:
           ADMIN_PASSWORD: teacher123
           GITHUB_REPO: summeriva/student-gallery
@@ -31,5 +30,4 @@ resources:
               - GET
               - POST
               - DELETE
-              - PUT
               - OPTIONS

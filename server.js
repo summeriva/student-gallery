@@ -1,4 +1,9 @@
-/* ===== 学生作品展示馆 · 共享后端（纯 Node，零依赖，含老师权限 + GitHub 持久化） ===== */
+/* ===== 学生作品展示馆 · 共享后端（纯 Node，零依赖，含老师权限 + GitHub 持久化） =====
+ * 双入口：
+ *   1) 本地：node server.js  -> 启动 HTTP 服务（默认 :3000）
+ *   2) 阿里云 FC 内置 Node.js 运行时：exports.handler（HTTP 触发器，handler=server.handler）
+ * 两者共用同一套路由与 GitHub 持久化逻辑，无需 Docker、无需打包运行时。
+ */
 const http   = require('http');
 const fs     = require('fs');
 const path   = require('path');
@@ -27,7 +32,7 @@ fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 function uid(){ return 'w_' + Date.now().toString(36) + Math.random().toString(36).slice(2,6); }
 function readWorks(){ try{ return JSON.parse(fs.readFileSync(DATA_FILE,'utf8')); }catch(e){ return []; } }
 function writeWorksLocal(list){ fs.writeFileSync(DATA_FILE, JSON.stringify(list, null, 2)); }
-function isAdmin(req){ return req.headers['x-admin-token'] === ADMIN_TOKEN; }
+function isAdmin(reqMeta){ return reqMeta.headers['x-admin-token'] === ADMIN_TOKEN; }
 
 /* ---------- GitHub 存储层 ---------- */
 function ghHeaders(){
@@ -100,20 +105,25 @@ const MIME = {
   '.gif':'image/gif', '.svg':'image/svg+xml', '.webp':'image/webp'
 };
 
+/* 返回 Promise，确保 FC 异步响应在 handler 返回前已发送 */
 function sendFile(res, filePath){
-  fs.readFile(filePath, (err, data) => {
-    if(err){ res.writeHead(404); return res.end('Not found'); }
-    res.writeHead(200, { 'Content-Type': MIME[path.extname(filePath).toLowerCase()] || 'application/octet-stream' });
-    res.end(data);
+  return new Promise((resolve) => {
+    fs.readFile(filePath, (err, data) => {
+      if(err){ res.writeHead(404); res.end('Not found'); }
+      else {
+        res.writeHead(200, { 'Content-Type': MIME[path.extname(filePath).toLowerCase()] || 'application/octet-stream' });
+        res.end(data);
+      }
+      resolve();
+    });
   });
 }
 
-function readJson(req, limit){
+/* 把请求体 Buffer 解析为 JSON（替代原来的流式中转） */
+function parseJsonBody(buf, limit){
   return new Promise((resolve, reject) => {
-    let size = 0; const chunks = [];
-    req.on('data', c => { size += c.length; if(size > limit){ req.destroy(); reject(new Error('too large')); } else chunks.push(c); });
-    req.on('end', () => { try{ resolve(JSON.parse(Buffer.concat(chunks).toString('utf8'))); }catch(e){ reject(e); } });
-    req.on('error', reject);
+    if(buf && buf.length > limit){ return reject(new Error('too large')); }
+    try{ resolve(JSON.parse((buf || Buffer.alloc(0)).toString('utf8'))); }catch(e){ reject(e); }
   });
 }
 
@@ -125,10 +135,10 @@ function json(res, code, obj, cors){
 }
 
 /* ---------- API ---------- */
-async function handleApi(req, res, pathname){
+async function handleApi(reqMeta, res, pathname){
   const cors = true;
   try{
-    if(req.method === 'OPTIONS'){
+    if(reqMeta.method === 'OPTIONS'){
       res.writeHead(204, {
         'Access-Control-Allow-Origin':'*',
         'Access-Control-Allow-Methods':'GET,POST,DELETE',
@@ -138,22 +148,22 @@ async function handleApi(req, res, pathname){
     }
 
     /* 老师登录：口令正确则发放管理令牌 */
-    if(req.method === 'POST' && pathname === '/api/login'){
-      const body = await readJson(req, 1024);
+    if(reqMeta.method === 'POST' && pathname === '/api/login'){
+      const body = await parseJsonBody(reqMeta.body, 1024);
       const pw = (body.password || '').toString();
       if(pw === ADMIN_PASSWORD) return json(res, 200, { ok:true, token: ADMIN_TOKEN }, cors);
       return json(res, 401, { error:'口令错误' }, cors);
     }
 
     /* 读取作品：所有人可看 */
-    if(req.method === 'GET' && pathname === '/api/works'){
+    if(reqMeta.method === 'GET' && pathname === '/api/works'){
       return json(res, 200, readWorks(), cors);
     }
 
     /* 发布作品：仅老师可操作 */
-    if(req.method === 'POST' && pathname === '/api/works'){
-      if(!isAdmin(req)) return json(res, 401, { error:'需要老师口令才能发布' }, cors);
-      const body = await readJson(req, 12 * 1024 * 1024);
+    if(reqMeta.method === 'POST' && pathname === '/api/works'){
+      if(!isAdmin(reqMeta)) return json(res, 401, { error:'需要老师口令才能发布' }, cors);
+      const body = await parseJsonBody(reqMeta.body, 12 * 1024 * 1024);
       const title  = (body.title  || '').toString().trim();
       const domain = (body.domain || '').toString().trim();
       const author = (body.author || '').toString().trim();
@@ -199,8 +209,8 @@ async function handleApi(req, res, pathname){
     }
 
     /* 删除作品：仅老师可操作 */
-    if(req.method === 'DELETE' && pathname.startsWith('/api/works/')){
-      if(!isAdmin(req)) return json(res, 401, { error:'需要老师口令才能删除' }, cors);
+    if(reqMeta.method === 'DELETE' && pathname.startsWith('/api/works/')){
+      if(!isAdmin(reqMeta)) return json(res, 401, { error:'需要老师口令才能删除' }, cors);
       const id = pathname.split('/').pop();
       const list = readWorks();
       const idx = list.findIndex(w => w.id === id);
@@ -221,12 +231,12 @@ async function handleApi(req, res, pathname){
   }
 }
 
-/* ---------- 服务器 ---------- */
-const server = http.createServer((req, res) => {
-  const url = new URL(req.url, 'http://localhost');
+/* ---------- 路由核心（本地 / FC 共用）---------- */
+async function route(reqMeta, res, rawUrl){
+  const url = new URL(rawUrl, 'http://localhost');
   const pathname = decodeURIComponent(url.pathname);
 
-  if(pathname.startsWith('/api/')) return handleApi(req, res, pathname);
+  if(pathname.startsWith('/api/')) return handleApi(reqMeta, res, pathname);
 
   if(pathname.startsWith('/uploads/')){
     const fp = path.normalize(path.join(UPLOAD_DIR, path.basename(pathname)));
@@ -238,12 +248,72 @@ const server = http.createServer((req, res) => {
   const fp = path.normalize(path.join(ROOT, rel));
   if(!fp.startsWith(ROOT)){ res.writeHead(403); return res.end('forbidden'); }
   return sendFile(res, fp);
+}
+
+/* ---------- 本地入口 ---------- */
+function readNodeBody(req){
+  return new Promise((resolve, reject) => {
+    const chunks = []; let n = 0;
+    req.on('data', c => { n += c.length; if(n > 12*1024*1024){ req.destroy(); reject(new Error('too large')); } else chunks.push(c); });
+    req.on('end', () => resolve(Buffer.concat(chunks)));
+    req.on('error', reject);
+  });
+}
+
+const server = http.createServer(async (req, res) => {
+  try{
+    const buf = await readNodeBody(req);
+    await route({ method: req.method, headers: req.headers, body: buf }, res, req.url);
+  }catch(e){
+    console.error('本地请求错误:', e);
+    if(!res.headersSent){ res.writeHead(500); res.end('Internal Server Error'); }
+  }
 });
 
-(async () => {
-  await syncFromGitHub();
-  server.listen(PORT, '0.0.0.0', () => {
-    console.log(`✅ 学生作品展示馆已启动： http://localhost:${PORT}  （老师默认口令：teacher123）`);
-    console.log(USE_GH ? ('🔗 已启用 GitHub 持久化：' + GH_REPO) : '⚠️ 未配置 GITHUB_TOKEN，使用本地文件（redeploy 会丢失新增作品）');
-  });
-})();
+/* 启动时先同步一次 GitHub 数据；模块级 promise，本地与 FC 都 await 它 */
+const ready = syncFromGitHub();
+
+/* 本地模式：启动 HTTP 服务。FC 运行时由 exports.handler 处理，不启动监听。 */
+if(!process.env.FC_RUNTIME){
+  (async () => {
+    await ready;
+    server.listen(PORT, '0.0.0.0', () => {
+      console.log(`✅ 学生作品展示馆已启动： http://localhost:${PORT}  （老师默认口令：teacher123）`);
+      console.log(USE_GH ? ('🔗 已启用 GitHub 持久化：' + GH_REPO) : '⚠️ 未配置 GITHUB_TOKEN，使用本地文件（redeploy 会丢失新增作品）');
+    });
+  })();
+}
+
+/* ---------- 阿里云 FC 入口（内置 Node.js 运行时，HTTP 触发器）---------- */
+function buildQuery(q){
+  if(!q || typeof q !== 'object') return '';
+  const parts = [];
+  for(const k in q){ const v = q[k]; const arr = Array.isArray(v) ? v : [v]; arr.forEach(x => parts.push(k + '=' + encodeURIComponent(x))); }
+  return parts.length ? ('?' + parts.join('&')) : '';
+}
+/* 把 FC 的 resp 适配成 route() 需要的接口（writeHead/end/setHeader/headersSent） */
+function makeFcRes(resp){
+  let code = 200; const hdrs = {};
+  const adapter = {
+    get headersSent(){ try { return resp.hasSent ? resp.hasSent() : false; } catch(e){ return false; } },
+    writeHead(c, headers){ code = c; if(headers) Object.assign(hdrs, headers); return adapter; },
+    setHeader(k, v){ hdrs[k] = v; return adapter; },
+    end(body){ try{ resp.setStatusCode(code); }catch(e){} for(const k in hdrs){ try{ resp.setHeader(k, hdrs[k]); }catch(e){} } if(body === undefined) resp.send(''); else resp.send(body); },
+    destroy(){}
+  };
+  return adapter;
+}
+exports.handler = async (req, resp, context) => {
+  try{
+    await ready;
+    const method = (req.method || 'GET').toUpperCase();
+    const headers = req.headers || {};
+    const body = Buffer.isBuffer(req.body) ? req.body : Buffer.from(req.body || '');
+    const rawPath = req.path || (req.url ? String(req.url).split('?')[0] : '/');
+    const rawUrl = rawPath + buildQuery(req.queries);
+    await route({ method, headers, body }, makeFcRes(resp), rawUrl);
+  }catch(e){
+    console.error('FC 请求错误:', e);
+    try{ if(!resp.hasSent || !resp.hasSent()){ resp.setStatusCode(500); resp.send('Internal Server Error'); } }catch(_){}
+  }
+};
